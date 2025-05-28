@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import SelectorNivel from "../components/SelectorNivel";
+import SelectorNivel from "../components (VIEWS)/SelectorNivel";
 
 const Home = () => {
   const [nivelSeleccionado, setNivelSeleccionado] = useState("Secundaria");

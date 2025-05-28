@@ -1,12 +1,12 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 
-import DocentesForm from "./components/DocentesForm";
-import FranjasHorariasForm from "./components/FranjasHorariasForm";
-import AsignacionDocenteCurso from "./components/AsignacionDocenteCurso";
-import RestriccionesForm from "./components/RestriccionesForm";
-import HorarioTable from "./components/HorarioTable";
-import HorarioPorDocente from "./components/HorarioPorDocente";
+import DocentesForm from "./components (VIEWS)/DocentesForm";
+import FranjasHorariasForm from "./components (VIEWS)/FranjasHorariasForm";
+import AsignacionDocenteCurso from "./components (VIEWS)/AsignacionDocenteCurso";
+import RestriccionesForm from "./components (VIEWS)/RestriccionesForm";
+import HorarioTable from "./components (VIEWS)/HorarioTable";
+import HorarioPorDocente from "./components (VIEWS)/HorarioPorDocente";
 
 function App() {
   return (
