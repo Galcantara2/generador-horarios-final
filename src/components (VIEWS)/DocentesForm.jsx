@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { supabase } from "../supabaseClient";
 
 const DocentesForm = () => {
@@ -7,14 +8,25 @@ const DocentesForm = () => {
   const [aulaId, setAulaId] = useState("");
   const [aulas, setAulas] = useState([]);
   const [docentes, setDocentes] = useState([]);
+  const [modoEdicion, setModoEdicion] = useState(false);
+  const [docenteEditandoId, setDocenteEditandoId] = useState(null);
+
+  // Obtener nivel desde la URL
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  const nivelURL = params.get("nivel") || "Secundaria";
 
   useEffect(() => {
     cargarDocentes();
     cargarAulas();
-  }, []);
+  }, [nivelURL]);
 
   const cargarDocentes = async () => {
-    const { data } = await supabase.from("docentes").select("*, aulas(nombre)").order("id");
+    const { data } = await supabase
+      .from("docentes")
+      .select("*, aulas(nombre)")
+      .eq("nivel", nivelURL)
+      .order("id");
     setDocentes(data || []);
   };
 
@@ -23,19 +35,30 @@ const DocentesForm = () => {
     setAulas(data || []);
   };
 
+  const aulasOcupadas = docentes.map((d) => d.aula_id);
+
   const agregarDocente = async () => {
     if (!nombre || !jornada || !aulaId) return;
-    const { error } = await supabase.from("docentes").insert({
+
+    const payload = {
       nombre,
       jornada_total: parseInt(jornada),
       aula_id: parseInt(aulaId),
-    });
-    if (!error) {
-      setNombre("");
-      setJornada("");
-      setAulaId("");
-      cargarDocentes();
+      nivel: nivelURL // Agregamos nivel para registrar correctamente
+    };
+
+    if (modoEdicion && docenteEditandoId) {
+      await supabase.from("docentes").update(payload).eq("id", docenteEditandoId);
+    } else {
+      await supabase.from("docentes").insert(payload);
     }
+
+    setNombre("");
+    setJornada("");
+    setAulaId("");
+    setModoEdicion(false);
+    setDocenteEditandoId(null);
+    cargarDocentes();
   };
 
   const eliminarDocente = async (id) => {
@@ -43,9 +66,17 @@ const DocentesForm = () => {
     cargarDocentes();
   };
 
+  const editarDocente = (docente) => {
+    setNombre(docente.nombre);
+    setJornada(docente.jornada_total.toString());
+    setAulaId(docente.aula_id.toString());
+    setModoEdicion(true);
+    setDocenteEditandoId(docente.id);
+  };
+
   return (
     <div className="p-6 max-w-3xl mx-auto">
-      <h2 className="text-2xl font-bold mb-4">Registrar Docente</h2>
+      <h2 className="text-2xl font-bold mb-4">Registrar Docente - {nivelURL}</h2>
       <div className="flex gap-2 mb-4">
         <input
           type="text"
@@ -68,14 +99,24 @@ const DocentesForm = () => {
         >
           <option value="">Seleccione un aula</option>
           {aulas.map((a) => (
-            <option key={a.id} value={a.id}>{a.nombre}</option>
+            <option
+              key={a.id}
+              value={a.id}
+              disabled={
+                aulaId !== a.id.toString() && aulasOcupadas.includes(a.id)
+              }
+            >
+              {a.nombre}
+            </option>
           ))}
         </select>
         <button
           onClick={agregarDocente}
-          className="bg-blue-600 text-white px-4 py-2 rounded"
+          className={`${
+            modoEdicion ? "bg-yellow-600" : "bg-blue-600"
+          } text-white px-4 py-2 rounded`}
         >
-          Agregar
+          {modoEdicion ? "Guardar Cambios" : "Agregar"}
         </button>
       </div>
 
@@ -94,12 +135,21 @@ const DocentesForm = () => {
               <td className="border px-4 py-2">{d.nombre}</td>
               <td className="border px-4 py-2">{d.jornada_total}</td>
               <td className="border px-4 py-2">{d.aulas?.nombre || ""}</td>
-              <td className="border px-4 py-2">
-                {/* Aquí podrías poner botón Editar si deseas */}
-                <button
-                  onClick={() => eliminarDocente(d.id)}
-                  className="text-red-600 hover:underline"
-                >Eliminar</button>
+              <td className="border px-2 py-2">
+                <div className="flex justify-center gap-2 w-full">
+                  <button
+                    onClick={() => editarDocente(d)}
+                    className="flex-1 text-blue-600 hover:underline text-sm"
+                  >
+                    Editar
+                  </button>
+                  <button
+                    onClick={() => eliminarDocente(d.id)}
+                    className="flex-1 text-red-600 hover:underline text-sm"
+                  >
+                    Eliminar
+                  </button>
+                </div>
               </td>
             </tr>
           ))}

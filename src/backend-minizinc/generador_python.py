@@ -1,89 +1,136 @@
-import json
+import random
+
+DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes"]
+NUM_DIAS = 5
+NUM_BLOQUES = 8
 
 def dividir_horas(horas):
+    if horas <= 1:
+        return []
+    if horas == 2:
+        return [[2]]
+    if horas == 3:
+        return [[3]]
     if horas == 4:
         return [[2, 2]]
-    elif horas == 5:
+    if horas == 5:
         return [[2, 3], [3, 2]]
-    elif horas == 6:
+    if horas == 6:
         return [[3, 3], [2, 2, 2]]
-    elif horas == 7:
-        return [[3, 4], [4, 3], [2, 2, 3], [2, 3, 2]]
-    elif horas == 8:
-        return [[4, 4], [3, 3, 2]]
-    elif horas == 9:
-        return [[3, 3, 3], [4, 3, 2]]
-    elif horas == 10:
-        return [[5, 5], [4, 3, 3]]
-    else:
-        return [[horas]]
+    if horas == 7:
+        return [[2, 2, 3], [2, 3, 2], [3, 2, 2]]
+    return [[horas]]  # fallback
+
+def son_consecutivos(bloques):
+    return all(b2 - b1 == 1 for b1, b2 in zip(bloques, bloques[1:]))
 
 def generar_horario(docentes, asignaciones, restricciones, horas_curso_grado):
-    NUM_DIAS = 5
-    NUM_BLOQUES = 8
-    dias = ["lunes", "martes", "miércoles", "jueves", "viernes"]
+    """
+    Genera un horario semanal asignando cursos a grados en bloques disponibles,
+    respetando las restricciones horarias de los docentes y procurando bloques consecutivos.
+    """
 
-    horario = {dia: {bloque: {} for bloque in range(NUM_BLOQUES)} for dia in range(NUM_DIAS)}
-    bloques_ocupados = {docente["id"]: set() for docente in docentes}
+    if not docentes or not asignaciones or not restricciones or not horas_curso_grado:
+        raise ValueError("Faltan datos de entrada requeridos para generar el horario.")
 
-    intentos_fallidos = 0
+    horario = {d: {b: {} for b in range(NUM_BLOQUES)} for d in range(NUM_DIAS)}
+    bloques_ocupados = {doc["id"]: set() for doc in docentes}
+    horas_asignadas = {}
+    fallidos = 0
 
-    for curso_id, grados_dict in asignaciones.items():
-        for grado_str, asignacion in grados_dict.items():
+    for curso_id, grados in asignaciones.items():
+        for grado_str, datos in grados.items():
             grado = int(grado_str)
-            docente_id = asignacion["docente_id"]
-            horas_necesarias = horas_curso_grado.get(str(curso_id), {}).get(str(grado), 0)
-            if horas_necesarias == 0:
+            docente_id = datos["docente_id"]
+            horas = horas_curso_grado.get(str(curso_id), {}).get(str(grado), 0)
+
+            if horas <= 1:
+                print(f"⛔ Curso {curso_id}, Grado {grado}: solo {horas}h -> omitido")
+                horas_asignadas[(curso_id, grado)] = 0
                 continue
 
-            bloques_por_dia = dividir_horas(horas_necesarias)
-            asignado_total = False
+            combinaciones = sorted(dividir_horas(horas), key=len)
+            asignado_ok = False
 
-            for bloques_combo in bloques_por_dia:
-                usado_dias = set()
-                bloques_asignados = 0
-                temp_asignaciones = []
+            for combo in combinaciones:
+                dias_usados = set()
+                asign_temp = []
 
-                for cantidad in bloques_combo:
-                    asignado = False
-                    for dia_index, dia_nombre in enumerate(dias):
-                        if dia_index in usado_dias:
+                for cantidad in combo:
+                    dia_disponible = None
+                    bloques_asignables = []
+
+                    dias_shuffle = list(range(NUM_DIAS))
+                    random.shuffle(dias_shuffle)
+
+                    for dia in dias_shuffle:
+                        if dia in dias_usados:
                             continue
 
-                        bloques_disponibles = []
-                        for bloque in range(NUM_BLOQUES):
-                            clave = f"{dia_nombre}-{bloque}"
-                            if restricciones.get(str(docente_id), {}).get(clave, False) and \
-                               (dia_index, bloque) not in bloques_ocupados[docente_id] and \
-                               grado not in horario[dia_index][bloque]:
-                                bloques_disponibles.append(bloque)
+                        dia_nombre = DIAS[dia]
+                        libres = [
+                            b for b in range(NUM_BLOQUES)
+                            if restricciones.get(str(docente_id), {}).get(f"{dia_nombre}-{b}", False)
+                            and (dia, b) not in bloques_ocupados[docente_id]
+                            and grado not in horario[dia][b]
+                        ]
+                        libres.sort()
 
-                        bloques_disponibles.sort()
-                        for i in range(len(bloques_disponibles) - cantidad + 1):
-                            consecutivos = bloques_disponibles[i:i + cantidad]
-                            if consecutivos[-1] - consecutivos[0] == cantidad - 1:
-                                for b in consecutivos:
-                                    temp_asignaciones.append((dia_index, b))
-                                usado_dias.add(dia_index)
-                                asignado = True
+                        for i in range(len(libres) - cantidad + 1):
+                            bloque_segmento = libres[i:i + cantidad]
+                            if son_consecutivos(bloque_segmento):
+                                bloques_asignables = [(dia, b) for b in bloque_segmento]
+                                dia_disponible = dia
                                 break
-                        if asignado:
+                        if bloques_asignables:
                             break
 
-                    if not asignado:
-                        break  # falló este combo
+                    if bloques_asignables:
+                        for dia, b in bloques_asignables:
+                            horario[dia][b][grado] = int(curso_id)
+                            bloques_ocupados[docente_id].add((dia, b))
+                            asign_temp.append((dia, b))
+                        dias_usados.add(dia_disponible)
+                    else:
+                        break  # no se pudo asignar este combo
 
-                # Verificamos si logramos asignar todas las horas
-                if len(temp_asignaciones) == horas_necesarias:
-                    for dia_index, b in temp_asignaciones:
-                        horario[dia_index][b][grado] = int(curso_id)
-                        bloques_ocupados[docente_id].add((dia_index, b))
-                    asignado_total = True
-                    break
+                if len(asign_temp) == horas:
+                    asignado_ok = True
+                    horas_asignadas[(curso_id, grado)] = horas
+                    break  # combinación exitosa
 
-            if not asignado_total:
-                intentos_fallidos += 1
-                print(f"⚠️ No se pudo asignar completamente: curso {curso_id}, grado {grado}")
+            if not asignado_ok:
+                fallidos += 1
+                horas_asignadas[(curso_id, grado)] = 0
+                print(f"[!] No se pudo asignar: curso {curso_id}, grado {grado}")
 
-    print(f"✅ Asignación completada. Cursos no asignados completamente: {intentos_fallidos}")
-    return horario
+    # Informes
+    print(f"\n[INFO] Asignación completada.")
+    print(f"[INFO] Cursos no asignados completamente: {fallidos}")
+
+    print("\n[INFO] Resumen de asignación de horas:")
+    for (curso_id, grado), asignadas in horas_asignadas.items():
+        requeridas = horas_curso_grado.get(str(curso_id), {}).get(str(grado), 0)
+        estado = "✅ OK" if asignadas == requeridas else "❌ FALTAN"
+        print(f" - Curso {curso_id}, Grado {grado}: {asignadas}/{requeridas} horas -> {estado}")
+
+    total_bloques = sum(
+        1 for dia in horario.values()
+        for bloque in dia.values()
+        for curso in bloque.values()
+        if isinstance(curso, int) and curso > 0
+    )
+    print(f"\n[INFO] Total asignado: {total_bloques} bloques")
+
+    print("\n[INFO] Cursos con solo 1 hora definida (no se asignan):")
+    for curso_id, grados in horas_curso_grado.items():
+        for grado_str, h in grados.items():
+            if isinstance(h, int) and h == 1:
+                print(f"[!] Curso {curso_id}, Grado {grado_str} tiene solo 1 hora definida.")
+
+    return {
+        "horario": horario,
+        "asignaciones_exitosas": sum(1 for v in horas_asignadas.values() if v > 0),
+        "asignaciones_fallidas": fallidos,
+        "total_bloques_asignados": total_bloques
+    }

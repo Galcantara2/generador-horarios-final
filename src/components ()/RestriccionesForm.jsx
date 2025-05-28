@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom"; // 🆕 para leer el nivel
 import { Calendar, dateFnsLocalizer } from "react-big-calendar";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import { format, parse, startOfWeek, getDay } from "date-fns";
 import es from "date-fns/locale/es";
 import { supabase } from "../supabaseClient";
-import { useDocentes } from "../context/DocenteContext"; // si usas contexto global
+import { useDocentes } from "../context(CONTROLLER)/DocenteContext";
 
 const locales = { es };
 const localizer = dateFnsLocalizer({ format, parse, startOfWeek, getDay, locales });
@@ -13,28 +14,62 @@ const RestriccionesForm = () => {
   const [docentes, setDocentes] = useState([]);
   const [docenteSeleccionado, setDocenteSeleccionado] = useState("");
   const [eventos, setEventos] = useState([]);
+  const { setRestricciones } = useDocentes();
 
-  const { setRestricciones } = useDocentes(); // si manejas restricciones globalmente
+  const location = useLocation(); // 🆕
+  const params = new URLSearchParams(location.search);
+  const nivelURL = params.get("nivel") || "Secundaria";
 
   useEffect(() => {
     cargarDocentes();
-  }, []);
+  }, [nivelURL]);
+
+  useEffect(() => {
+    if (docenteSeleccionado) cargarRestriccionesGuardadas();
+  }, [docenteSeleccionado]);
 
   const cargarDocentes = async () => {
-    const { data } = await supabase.from("docentes").select("id, nombre");
+    const { data } = await supabase
+      .from("docentes")
+      .select("id, nombre")
+      .eq("nivel", nivelURL); // 🆕 solo docentes del nivel seleccionado
+
     setDocentes(data || []);
   };
 
-  const manejarSeleccion = ({ start, end }) => {
-    const nuevoEvento = {
-      start,
-      end,
-      title: "Disponible",
-    };
-    setEventos([...eventos, nuevoEvento]);
+  const cargarRestriccionesGuardadas = async () => {
+    const docente = docentes.find((d) => d.nombre === docenteSeleccionado);
+    if (!docente) return;
+
+    const { data } = await supabase
+      .from("restricciones_docente")
+      .select()
+      .eq("docente_id", docente.id);
+
+    const nuevosEventos = (data || []).map((r) => {
+      const diaSemana = ["lunes", "martes", "miércoles", "jueves", "viernes"];
+      const indiceDia = diaSemana.indexOf(r.dia);
+      const inicioBase = new Date(2024, 3, 22 + indiceDia, 7, 15); // lunes 22 abr
+      const start = new Date(inicioBase.getTime() + r.bloque * 45 * 60000);
+      const end = new Date(start.getTime() + 45 * 60000);
+      return { title: "Disponible", start, end };
+    });
+
+    setEventos(nuevosEventos);
   };
 
-  const limpiarCalendario = () => setEventos([]);
+  const manejarSeleccion = ({ start, end }) => {
+    setEventos([...eventos, { start, end, title: "Disponible" }]);
+  };
+
+  const manejarDobleClickEvento = (eventoEliminado) => {
+    if (window.confirm("¿Deseas eliminar esta disponibilidad?")) {
+      setEventos(eventos.filter((e) =>
+        !(e.start.getTime() === eventoEliminado.start.getTime() &&
+          e.end.getTime() === eventoEliminado.end.getTime())
+      ));
+    }
+  };
 
   const guardarRestricciones = async () => {
     if (!docenteSeleccionado) return alert("Seleccione un docente.");
@@ -42,10 +77,8 @@ const RestriccionesForm = () => {
     const docente = docentes.find((d) => d.nombre === docenteSeleccionado);
     if (!docente) return alert("Docente no encontrado.");
 
-    // Elimina restricciones anteriores del docente
     await supabase.from("restricciones_docente").delete().eq("docente_id", docente.id);
 
-    // Calcular bloques seleccionados (disponibles)
     const bloquesDisponibles = new Set();
     eventos.forEach(({ start, end }) => {
       const dia = start.toLocaleDateString("es-PE", { weekday: "long" }).toLowerCase();
@@ -62,30 +95,22 @@ const RestriccionesForm = () => {
       }
     });
 
-    // Convertir a registros para Supabase
     const restricciones = [];
-    const restriccionesMap = {}; // para el contexto global
+    const restriccionesMap = {};
 
     for (let clave of bloquesDisponibles) {
       const [dia, bloqueStr] = clave.split("-");
       const bloque = parseInt(bloqueStr);
-      restricciones.push({
-        docente_id: docente.id,
-        dia,
-        bloque,
-      });
-      restriccionesMap[clave] = true; // clave tipo "lunes-0": true
+      restricciones.push({ docente_id: docente.id, dia, bloque });
+      restriccionesMap[clave] = true;
     }
 
-    // Guardar en Supabase
     const { error } = await supabase.from("restricciones_docente").insert(restricciones);
     if (error) {
       alert("❌ Error al guardar restricciones");
       console.error(error);
     } else {
       alert("✅ Restricciones guardadas correctamente");
-
-      // Si usas contexto global, actualiza las restricciones
       if (setRestricciones) {
         setRestricciones((prev) => ({
           ...prev,
@@ -97,14 +122,13 @@ const RestriccionesForm = () => {
 
   return (
     <div className="p-4 max-w-6xl mx-auto">
-      <h2 className="text-xl font-semibold mb-4">Restricciones tipo calendario</h2>
+      <h2 className="text-xl font-semibold mb-4">
+        Restricciones tipo calendario ({nivelURL})
+      </h2>
 
       <select
         value={docenteSeleccionado}
-        onChange={(e) => {
-          setDocenteSeleccionado(e.target.value);
-          limpiarCalendario();
-        }}
+        onChange={(e) => setDocenteSeleccionado(e.target.value)}
         className="border px-3 py-2 mb-4 rounded w-full"
       >
         <option value="">-- Seleccione un docente --</option>
@@ -127,12 +151,14 @@ const RestriccionesForm = () => {
               timeslots={1}
               step={45}
               onSelectSlot={manejarSeleccion}
+              onDoubleClickEvent={manejarDobleClickEvento}
               defaultDate={new Date(2024, 3, 22)}
               min={new Date(1970, 1, 1, 7, 15)}
               max={new Date(1970, 1, 1, 13, 30)}
               toolbar={false}
               formats={{
-                dayFormat: (date) => ["Lun", "Mar", "Mié", "Jue", "Vie"][date.getDay() - 1]
+                dayFormat: (date) =>
+                  ["Lun", "Mar", "Mié", "Jue", "Vie"][date.getDay() - 1]
               }}
               dayPropGetter={(date) =>
                 date.getDay() === 0 || date.getDay() === 6 ? { style: { display: "none" } } : {}

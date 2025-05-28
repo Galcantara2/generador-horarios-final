@@ -1,98 +1,54 @@
 int: NUM_DIAS = 5;
 int: NUM_BLOQUES = 8;
-int: NUM_GRADOS;
-int: NUM_CURSOS;
-int: NUM_DOCENTES;
 
 set of int: DIAS = 1..NUM_DIAS;
 set of int: BLOQUES = 1..NUM_BLOQUES;
-set of int: GRADOS = 1..NUM_GRADOS;
-set of int: CURSOS = 1..NUM_CURSOS;
-set of int: DOCENTES = 1..NUM_DOCENTES;
+
+array[int, int] of int: docente_asignado;
+array[int, int] of int: horas_curso_grado;
+array[int, int, int] of bool: disponible;
+
+set of int: CURSOS = index_set_1of2(docente_asignado);
+set of int: GRADOS = index_set_2of2(docente_asignado);
+set of int: DOCENTES = index_set_1of3(disponible);
+
+int: NUM_CURSOS = card(CURSOS);
+int: NUM_GRADOS = card(GRADOS);
+int: NUM_DOCENTES = card(DOCENTES);
 
 array[DIAS, BLOQUES, GRADOS] of var 0..NUM_CURSOS: horario;
-array[CURSOS, GRADOS] of int: docente_asignado;
-array[CURSOS, GRADOS] of int: horas_curso_grado;
-array[DOCENTES, DIAS, BLOQUES] of bool: disponible;
 
-% 🚫 No más de una clase por docente al mismo tiempo
-constraint forall(d in DIAS, b in BLOQUES, prof in DOCENTES)(
-  sum(g in GRADOS)(
-    let { var int: c = horario[d,b,g] } in
-      bool2int(c > 0 /\ docente_asignado[c,g] = prof)
-  ) <= 1
+array[CURSOS, GRADOS] of var 0..8: horas_asignadas;
+constraint forall(c in CURSOS, g in GRADOS)(
+  horas_asignadas[c,g] = sum(d in DIAS, b in BLOQUES)(bool2int(horario[d,b,g] = c))
 );
 
-% ✅ El docente debe estar disponible
+array[CURSOS, GRADOS] of var int: faltantes;
+constraint forall(c in CURSOS, g in GRADOS)(
+  faltantes[c,g] = horas_curso_grado[c,g] - horas_asignadas[c,g]
+);
+
 constraint forall(d in DIAS, b in BLOQUES, g in GRADOS)(
   let { var int: c = horario[d,b,g] } in
     c = 0 \/ disponible[docente_asignado[c,g], d, b]
 );
 
-% ⏱️ Respetar carga horaria por curso y grado
-constraint forall(c in CURSOS, g in GRADOS)(
-  sum(d in DIAS, b in BLOQUES)(
-    bool2int(horario[d,b,g] = c)
-  ) = horas_curso_grado[c,g]
+var int: ventanas = sum(g in GRADOS, d in DIAS)(
+  sum(b in 2..NUM_BLOQUES - 1)(
+    bool2int(
+      horario[d,b,g] = 0 /\
+      horario[d,b-1,g] > 0 /\
+      horario[d,b+1,g] > 0
+    )
+  )
 );
 
-% 📏 Dividir bien según cantidad de horas
-constraint forall(c in CURSOS, g in GRADOS)(
-  let {
-    int: h = horas_curso_grado[c,g]
-  } in
-    if h = 4 then
-      exists(d1 in DIAS, d2 in DIAS where d1 != d2)(
-        let {
-          int: b1 = sum(b in BLOQUES)(bool2int(horario[d1,b,g] = c)),
-          int: b2 = sum(b in BLOQUES)(bool2int(horario[d2,b,g] = c))
-        } in
-          b1 = 2 /\ b2 = 2
-      )
-    else if h = 5 then
-      exists(d1 in DIAS, d2 in DIAS where d1 != d2)(
-        let {
-          int: b1 = sum(b in BLOQUES)(bool2int(horario[d1,b,g] = c)),
-          int: b2 = sum(b in BLOQUES)(bool2int(horario[d2,b,g] = c))
-        } in
-          (b1 = 2 /\ b2 = 3) \/ (b1 = 3 /\ b2 = 2)
-      )
-    else if h = 6 then
-      exists(d1 in DIAS, d2 in DIAS where d1 != d2)(
-        let {
-          int: b1 = sum(b in BLOQUES)(bool2int(horario[d1,b,g] = c)),
-          int: b2 = sum(b in BLOQUES)(bool2int(horario[d2,b,g] = c))
-        } in
-          (b1 = 3 /\ b2 = 3) \/ 
-          (exists(d3 in DIAS where d3 != d1 /\ d3 != d2)(
-            let {
-              int: b3 = sum(b in BLOQUES)(bool2int(horario[d3,b,g] = c))
-            } in
-              b1 = 2 /\ b2 = 2 /\ b3 = 2
-          ))
-      )
-    else if h = 7 then
-      exists(d1 in DIAS, d2 in DIAS where d1 != d2)(
-        let {
-          int: b1 = sum(b in BLOQUES)(bool2int(horario[d1,b,g] = c)),
-          int: b2 = sum(b in BLOQUES)(bool2int(horario[d2,b,g] = c))
-        } in
-          (b1 = 3 /\ b2 = 4) \/ (b1 = 4 /\ b2 = 3) \/
-          (exists(d3 in DIAS where d3 != d1 /\ d3 != d2)(
-            let {
-              int: b3 = sum(b in BLOQUES)(bool2int(horario[d3,b,g] = c))
-            } in
-              (b1 = 2 /\ b2 = 2 /\ b3 = 3) \/ (b1 = 2 /\ b2 = 3 /\ b3 = 2)
-          ))
-      )
-    else
-      true
-);
+var int: total_faltantes = sum(c in CURSOS, g in GRADOS)(faltantes[c,g]);
 
-% 🎯 Maximizar bloques asignados
-var int: total_asignado = sum(d in DIAS, b in BLOQUES, g in GRADOS)(
-  bool2int(horario[d,b,g] > 0)
-);
-solve maximize total_asignado;
+solve minimize total_faltantes * 100 + ventanas;
 
-output ["{\"horario\": ", show(horario), "}"];
+output [
+  "{\"horario\": ", show(horario),
+  ", \"ventanas\": ", show(ventanas),
+  ", \"faltantes\": ", show(total_faltantes), "}"
+];

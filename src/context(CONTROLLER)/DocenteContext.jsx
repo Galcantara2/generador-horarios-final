@@ -10,14 +10,15 @@ export const DocenteProvider = ({ children }) => {
   const [restricciones, setRestricciones] = useState({});
   const [asignaciones, setAsignaciones] = useState({});
   const [horasCursos, setHorasCursos] = useState({});
+  const [horarioGeneral, setHorarioGeneral] = useState(null); // ✅ NUEVO
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Docentes
+        // ✅ Docentes (incluye 'nivel')
         const { data: docentesData } = await supabase
           .from("docentes")
-          .select("id, nombre, jornada_total, aula_id");
+          .select("id, nombre, jornada_total, aula_id, nivel");
         setDocentes(docentesData || []);
 
         // Asignaciones agrupadas por curso_id y grado_id
@@ -85,7 +86,9 @@ export const DocenteProvider = ({ children }) => {
         asignaciones,
         setAsignaciones,
         horasCursos,
-        setHorasCursos
+        setHorasCursos,
+        horarioGeneral,
+        setHorarioGeneral // ✅ NUEVO
       }}
     >
       {children}
